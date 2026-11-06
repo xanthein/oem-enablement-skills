@@ -1,6 +1,6 @@
 ---
 name: pc-image-sanity
-description: Use when sanity-testing an OEM PC image ISO on one or more DUTs (CIDs) before release: provision, pc-sanity-smoke-test-26-04, wireless rerun, Jira bugs.
+description: Use when sanity-testing an OEM PC image ISO on one or more DUTs (CIDs) before release: provision, smoke test plan from the ISO codename, wireless rerun, Jira bugs.
 version: 1.0.0
 author: dirk
 license: MIT
@@ -14,7 +14,9 @@ metadata:
 
 ## When to Use
 
-You have an OEM PC ISO and one or more DUTs (CIDs, queue name = CID) and want, per CID: provision the ISO, run `pc-sanity-smoke-test-26-04`, reserve the DUT, verify the image, re-run wireless jobs, file Jira bugs, release the DUT. CIDs run in parallel.
+You have an OEM PC ISO and one or more DUTs (CIDs, queue name = CID) and want, per CID: provision the ISO, run the smoke test plan, reserve the DUT, verify the image, re-run wireless jobs, release the DUT, file Jira bugs. You (the main agent) run each step yourself via `imgsanity.py`; CIDs run in parallel.
+
+Test plan comes from the ISO codename: `noble` → `pc-sanity-smoke-test-24-04`, `resolute` → `pc-sanity-smoke-test-26-04`. `preflight --test-plan X` overrides. Unknown codename → preflight exit 3: ask the user which plan to use.
 
 ## Required inputs
 
@@ -24,54 +26,61 @@ Stop and ask the user if any is missing; never guess.
 - `--iso` URL (reachable; HEAD-checked).
 - `--form-factor laptop|desktop`
 - `--lp-user` (Launchpad id; DUT gets `ssh_keys: lp:<user>`)
-- Jira `-p -m -a -l` (passed verbatim to `file_bugs.py`, once per batch)
+- Jira `-p -m -a -l` (stored in the batch, passed to `file_bugs.py` by `jira`)
 
 ## Prereqs
 
-- Jira args: `-p/-m/-l` are validated up front (via `checkbox-jira-bugger`'s `preflight`: project and label must exist in `jira_project_config.json`, milestone FC/GM, secrets/config files present), even in `--dry-run`, so a bad value fails before any job is submitted. A wrong label error lists the valid labels.
-- Testflinger login: the script checks this first, even in `--dry-run`. On exit 3 with `Testflinger not logged in`, ask the user to run `testflinger login` themselves, then retry. Never enter credentials.
-- `sshpass`, `jinja2`, `git`; the manifest repo at `~/source/canonical/ce-oem-dut-checkbox-configuration` (`--repo`; only `git fetch` + `git show`, never checkout; `--no-fetch` to skip fetch).
-- Sibling skills installed with their prereqs: `render_testflinger`, `checkbox-rerun` (see its prereqs), `checkbox-jira-bugger` (its Jira config files).
+- Jira `-p/-m/-l` are validated by `preflight` (project and label must exist in `jira_project_config.json`, milestone FC/GM, config files present). A wrong label error lists the valid labels.
+- Testflinger login is checked first. On exit 3 with `Testflinger not logged in`, ask the user to run `testflinger login` themselves, then retry. Never enter credentials.
+- `sshpass`, `jinja2`, `git`; manifest repo at `~/source/canonical/ce-oem-dut-checkbox-configuration` (`--repo`; only `git fetch` + `git show`; `--no-fetch` skips fetch).
+- Sibling skills installed with their prereqs: `render_testflinger`, `checkbox-rerun`, `checkbox-jira-bugger`.
 
 ## Usage
 
-    S=~/.config/opencode/skills/oem-enablement-skills/pc-image-sanity/scripts/pc_image_sanity.py
-    ARGS=(--cid 202601-38271 --cid 202601-38272 --iso <ISO URL> --form-factor laptop \
-          --lp-user <lp> -p <proj> -m <FC|GM> -a <assignee> -l <label>)
+    S=~/.config/opencode/skills/oem-enablement-skills/pc-image-sanity/scripts/imgsanity.py
+    python3 $S preflight --cid 202601-38271 --cid 202601-38272 --iso <ISO URL> \
+        --form-factor laptop --lp-user <lp> -p <proj> -m <FC|GM> -a <assignee> -l <label> [--test-plan X] [--no-fetch]
 
-    # 1. always dry-run first (renders job.yaml only, submits nothing)
-    python3 $S "${ARGS[@]}" --dry-run
+Last stdout line of every command is a JSON summary; progress and errors go to stderr. `preflight` prints `{step, ok, batch, test_plan, cids}`; use `batch` as `--batch` below.
 
-    # 2. real run
-    python3 $S "${ARGS[@]}"
+1. For each CID run `python3 $S submit --batch B --cid C --dry-run` (renders `job.yaml`, submits nothing; summary has `job_yaml`, `manifest_source`). Show the user the test plan and manifest sources before the real run.
+2. Real run, per CID, in order:
 
-Show the user the dry-run per-CID manifest source lines before the real run. Manifest order: `--manifest FILE` (`file:`) > `origin/<CID>:pc/<CID>/manifest.json` (`branch:`) > `origin/main:pc/<CID>/manifest.json` (`main:`) > bundled `manifests/manifest_<form-factor>.json` (`bundled:`). `pc/default` is never used.
+| Step | Command (`--batch B --cid C`) | Summary fields on success | Notes |
+|---|---|---|---|
+| submit | `submit` | `job_id`, `manifest_source` | refuses if a job is still held (`release` or `--force`; `--force` cancels the held job first, warns and continues if the cancel fails); `--dry-run` skips this check |
+| wait | `wait` | `dut_ip` | shell `background: true`, do not poll; hours. `--poll-interval` (default 60 s), `--max-wait` (default 43200 s) |
+| verify-image | `verify-image` | `dcd` | build id on DUT must match ISO name |
+| fetch | `fetch` | `submission` | scp from DUT |
+| rerun | `rerun` | `rerun_tarball` | `background: true`; logs `<C>/rerun.log` |
+| release | `release` | `job_id` | cancels the held job; no-op if none; fails (exit 1, `job_held` stays true) if cancel fails and the job is not complete/cancelled |
+| jira | `jira` | — | logs `<C>/jira.log` |
 
-The real run takes hours: start it with the shell tool's `background: true` and do not poll; you are notified on completion. When done, report the summary table and the `results.json` path to the user.
+Manifest order: `--manifest FILE` (`file:`) > `origin/<CID>:pc/<CID>/manifest.json` (`branch:`) > `origin/main:...` (`main:`) > bundled `manifests/manifest_<form-factor>.json` (`bundled:`). `pc/default` is never used.
 
-## What it does (per CID)
+Run CIDs in parallel as separate background shell jobs from the main agent. Never use subagents for CID steps (only the main agent can ask the user). `jira` takes the batch-wide lock (`--lock-timeout`, default 3600 s), so parallel CIDs do not file duplicates. Read the last stdout JSON line after each step.
 
-1. Render provision-and-test job (`pc-sanity-smoke-test-26-04`) + `reserve_data` (timeout 7200 s = 2 h ceiling), submit to queue = CID.
-2. Wait for state `reserve`, then get the DUT IP (up to 10 tries, 30 s apart). The job itself copies the submission tarball onto the DUT (`/home/ubuntu/submission_<CID>.tar.xz`) at the end of the test phase; Testflinger artifacts are only uploaded after the job ends, so they are used only as a best-effort record when a job ends without reaching reserve.
-3. Image check: build id (`YYYYMMDD-N`) from `ubuntu-report show | grep DCD` on the DUT must equal the build id in the ISO name; mismatch fails the CID. Then fetch the submission from the DUT over SSH (`scp`, ubuntu/insecure).
-4. `checkbox-rerun` (timeout 6000 s) on the submission. Then the DUT is released (`testflinger cancel`, Jira does not need it), the CID waits for a batch-wide Jira lock (stage `jira_wait`) and runs `checkbox-jira-bugger` on the rerun tarball. Only one CID files at a time, with a 5 s pause before the next, so parallel CIDs do not file duplicate bugs.
-5. In `finally`, `testflinger cancel` releases the DUT unless the job already ended or was already released in step 4.
-
-Progress: each stage change and key event prints `[HH:MM:SS] <CID>  <message>` to stderr (stage, job id, DUT IP, image check, release, Jira lock/exit, done/failed).
-
-Options: `--workdir` (default `/tmp/opencode/pc-image-sanity/<YYYYmmdd-HHMMSS>/<CID>/`), `--poll-interval` (60 s), `--max-wait` (43200 s to reach reserve).
-
-## Results and resume
-
-`<batch>/results.json` is rewritten at every stage (iso, form_factor, per-CID status/stage/job_id/manifest_source/submission/rerun_tarball/dut_ip/image_ok/jira_exit/released/error); logs in `<batch>/<CID>/rerun.log`, `jira.log`.
-
-To continue an interrupted batch, repeat the same required args and add `--resume <batch>/results.json`: CIDs already `done` are skipped; a CID whose saved job is not yet released and in a post-submit stage reuses that job; otherwise it is resubmitted. A CID saved at stage `jira_wait`/`jira` whose `rerun_tarball` still exists resumes at the Jira step only (its DUT is already released). The batch dir is reused.
+`status --batch B` prints a table (CID, STATUS, STAGE, JOB_ID, DUT_IP, ERROR) and writes `B/results.json` (full per-CID state incl. `job_held`).
 
 ## Exit codes
 
-0 all CIDs done · 1 any CID failed · 2 bad args / unreadable `--resume` / no CIDs · 3 preflight failed (not logged in, bad Jira -p/-m/-l, missing sibling/repo/manifest, ISO unreachable) · 130 interrupted (Ctrl-C, SIGTERM or SIGHUP: submitted jobs are cancelled on a best-effort basis, results still written).
+0 ok · 1 step failed (state set `failed`; summary has `step`, `ok:false`, `error`) · 2 bad args / unknown batch or CID / prerequisite step not run · 3 preflight failed (not logged in, bad Jira args, missing sibling/repo/manifest, ISO unreachable, unknown codename).
 
-`--dry-run` still does the login check, ISO HEAD check and `git fetch`; it only skips submitting.
+## Failure protocol
+
+On non-zero exit stop that CID only (others continue). Show the user the step, the `error`, and the last ~20 lines of the relevant log (`rerun.log` / `jira.log`), then ask with the `question` tool, first option = suggested. Never retry or skip without the user's answer.
+
+| Failure | Options |
+|---|---|
+| `wait`: job ended before reserve | inspect `<C>/artifacts` and resubmit (`submit`); skip CID |
+| `wait`: timeout (`--max-wait` exceeded) | keep waiting (`wait` again, optionally larger `--max-wait`); `release` + `submit`; skip |
+| `wait`: no DUT IP | rerun `wait`; check DUT in C3 (`c3` skill); `release` + `submit` |
+| `verify-image`: mismatch | `release` + skip (wrong image, report it); `release` + `submit` |
+| `verify-image`/`fetch`: SSH error | retry step; debug with `ssh` skill; `release` + `submit` |
+| `rerun` failed | retry `rerun`; inspect `rerun.log`; skip CID with `release` |
+| `jira` failed / lock timeout | fix config and retry `jira`; skip filing |
+
+Always run `release` when a CID is skipped, stopped or aborted. If the user aborts, run `release` for every CID with `job_held` true (run `status --batch B`, then list them with `jq -r '.[]|select(.job_held)|.cid' B/results.json`). If `release` fails (cancel failed), tell the user the DUT may still be reserved.
 
 ## Verify on the first real run
 
@@ -79,10 +88,11 @@ To continue an interrupted batch, repeat the same required args and add `--resum
 - The submission lands on the DUT at `/home/ubuntu/submission_<CID>.tar.xz`.
 - `testflinger status` prints the expected strings and the reserve output contains `ubuntu@<ip>`.
 - ubuntu/insecure password login works on the new image.
-- `testflinger cancel` releases the DUT promptly.
+- `testflinger cancel` (`release`) frees the DUT promptly.
 
 ## Caveats
 
 - `after-suspend-wireless` jobs suspend the DUT during rerun.
-- A CID that fails before reaching `reserve` (provision/test crash) is `failed`: no rerun, no Jira bugs; Testflinger artifacts are still fetched best-effort for the record.
+- Reserve timeout is 7200 s; release promptly after `rerun`.
+- A CID failing before `reserve` has no submission: no rerun, no Jira bugs.
 - One CID failing does not affect the others.
