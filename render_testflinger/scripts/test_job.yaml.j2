@@ -1,0 +1,150 @@
+job_queue: {{ job_queue }}
+global_timeout: 43200
+output_timeout: 9000
+test_data:
+  test_cmds: |-
+    set -x
+    # shellcheck disable=SC1054,SC2086
+
+    TARGET_DEVICE_USERNAME=ubuntu
+    SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+{% raw %}
+    _put() {
+        scp $SSH_OPTS "$1" $TARGET_DEVICE_USERNAME@"$DEVICE_IP":"$2"
+    }
+
+    _run() {
+        ssh -t $SSH_OPTS $TARGET_DEVICE_USERNAME@"$DEVICE_IP" "$@"
+    }
+
+    wait_for_ssh() {{
+        loopcnt=0
+        until timeout 120 ssh $SSH_OPTS $TARGET_DEVICE_USERNAME@"$DEVICE_IP" /bin/true
+        do
+            echo "Testing to see if system is back up"
+            loopcnt=$((loopcnt+1))
+            if [ $loopcnt -gt 40 ]; then
+                echo "ERROR: Timeout waiting for ssh!"
+                exit 1
+            fi
+            sleep 30
+        done
+    }}
+
+    mkdir -p artifacts
+    cat << "EOF" | tee ~/stop_auto_upgrades
+    APT::Periodic::Update-Package-Lists "1";
+    APT::Periodic::Download-Upgradeable-Packages "0";
+    APT::Periodic::AutocleanInterval "0";
+    APT::Periodic::Unattended-Upgrade "0";
+    EOF
+
+    _put ~/stop_auto_upgrades ~/20auto-upgrades
+    _run sudo cp 20auto-upgrades /etc/apt/apt.conf.d/20auto-upgrades
+
+    record_packages="$(cat << EOF
+        sudo mkdir -p /var/local/plainbox-provider-pc-sanity
+        if [ ! -f "/var/local/plainbox-provider-pc-sanity/clean-installed-dpkg.list" ]; then
+            dpkg-query -W -f='\${Package} \${Version} \${Status}\n' | grep installed | cut -f 1 -d ' ' | sudo tee /var/local/plainbox-provider-pc-sanity/clean-installed-dpkg.list &> /dev/null
+        fi
+    EOF
+    )"
+    _run "$record_packages"
+
+    _run sudo add-apt-repository ppa:checkbox-dev/beta -y
+    _run sudo apt-get update
+    _run sudo DEBIAN_FRONTEND=noninteractive apt-get install -y checkbox-provider-base checkbox-ng checkbox-provider-resource checkbox-provider-certification-client checkbox-provider-sru plainbox-provider-pc-sanity
+
+    sudo add-apt-repository -y ppa:checkbox-dev/beta
+    sudo DEBIAN_FRONTEND=noninteractive apt install -yqq checkbox-ng python3-venv sshpass jq pipx
+
+
+    echo "=====Before test setting start======"
+    _run sudo reboot
+    sleep 120
+    wait_for_ssh
+    echo "=====Before test settng end======"
+
+    cat <<EOF > checkbox-launcher
+    #!/usr/bin/env checkbox-cli
+{% endraw %}
+    [test plan]
+    unit = com.canonical.certification::{{ unit }}
+    forced = yes
+    [test selection]
+    forced = yes
+    [launcher]
+    launcher_version = 1
+    app_id = com.canonical.certification:CertLab_testflinger_testing
+    [ui]
+    type = silent
+    [daemon]
+    normal_user = ubuntu
+    [transport:local_file]
+    type = file
+    path = /home/ubuntu/artifacts/submission_{{ job_queue }}.tar.xz
+    [exporter:tar]
+    unit = com.canonical.plainbox::tar
+    [report:report_file]
+    transport = local_file
+    exporter = tar
+    forced = yes
+    {% if manifest %}
+    [manifest]
+    {% for key, value in manifest.items() %}
+    {{ key }} = {{ value }}
+    {% endfor %}
+    {% endif %}
+    [environment]
+    ROUTERS = multiple
+    WPA_BG_SSID = $WPA_BG_SSID
+    WPA_BG_PSK = $WPA_BG_PSK
+    WPA_N_SSID = $WPA_N_SSID
+    WPA_N_PSK = $WPA_N_PSK
+    WPA_AC_SSID = $WPA_AC_SSID
+    WPA_AC_PSK = $WPA_AC_PSK
+    WPA_AX_SSID = $WPA_AX_SSID
+    WPA_AX_PSK = $WPA_AX_PSK
+    WPA_BE_SSID = $WPA_BE_SSID
+    WPA_BE_PSK = $WPA_BE_PSK
+    WPA3_AX_SSID = $WPA3_AX_SSID
+    WPA3_AX_PSK = $WPA3_AX_PSK
+    WPA3_BE_SSID = $WPA3_BE_SSID
+    WPA3_BE_PSK = $WPA3_BE_PSK
+    OPEN_BG_SSID = $OPEN_BG_SSID
+    OPEN_N_SSID = $OPEN_N_SSID
+    OPEN_AC_SSID = $OPEN_AC_SSID
+    OPEN_AX_SSID = $OPEN_AX_SSID
+    OPEN_BE_SSID = $OPEN_BE_SSID
+    # MLO_SSID = cert-be-wpa3-tel-l10
+    # MLO_PSK = insecure
+    BTDEVADDR = 4C:80:93:CC:AC:21,7C:B2:7D:4B:14:95,34:6F:24:A8:93:EE,C4:BD:E5:51:D6:95,80:32:53:D8:0D:1E
+    TRANSFER_SERVER = cdimage.ubuntu.com
+    TEST_TARGET_IPERF = 192.168.2.10,10.102.182.2,10.102.182.3,10.102.182.4,10.102.182.5,10.102.182.6,10.102.182.7
+    STRESS_BOOT_ITERATIONS = 100
+    STRESS_BOOT_WAKEUP_DELAY = 100
+    COLD_REBOOT_DELAY = 100
+    STRESS_BOOT_WAIT_DELAY = 60
+    SNAPD_TASK_TIMEOUT = 600
+    # S3 and S2idle will using the same variables
+    STRESS_S3_ITERATIONS = 30
+    STRESS_SUSPEND_REBOOT_ITERATIONS = 3
+    STRESS_S3_SLEEP_DELAY = 60
+    STRESS_S3_WAIT_DELAY = 60
+    STRESS_SUSPEND_SLEEP_THRESHOLD = 10
+    STRESS_SUSPEND_RESUME_THRESHOLD = 5
+    SERIAL_PORTS_STATIC = /dev/ttyS4
+    EOF
+    _run sudo systemctl restart checkbox-ng.service
+    SESSION_DESC="{{ unit }}"
+    echo "Starting Test"
+    SUBMISSION_TAR_PATH="/home/ubuntu/artifacts/submission_{{ job_queue }}.tar.xz"
+{% raw %}
+    checkbox-cli control "$DEVICE_IP" checkbox-launcher
+
+    if [ ! -f "$SUBMISSION_TAR_PATH" ]; then
+        echo "Submission tar file not found: $SUBMISSION_TAR_PATH"
+        exit 1
+    fi
+    checkbox-cli submit -m "$SESSION_DESC" "$HEXR_DEVICE_SECURE_ID" "$SUBMISSION_TAR_PATH"
+{% endraw %}
