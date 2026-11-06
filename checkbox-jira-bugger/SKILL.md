@@ -16,7 +16,7 @@ metadata:
 
 `checkbox-rerun` has produced `submission_X_rerun.tar.xz` and the still-failing jobs should become Jira bugs. Runs unattended: if the gate passes it files for real.
 
-The user gives `-p` project, `-m` milestone (FC|GM), `-a` assignee (email or Mattermost name) and `-l` platform label before the Testflinger run. If any is missing, stop and ask. Never guess: filing is irreversible.
+The user gives `-p` project, `-m` milestone (FC|GM|M1|M2|...), `-a` assignee (email or Mattermost name) and `-l` platform label before the Testflinger run. If any is missing, stop and ask. Never guess: filing is irreversible.
 
 ## Prereqs
 
@@ -27,13 +27,13 @@ The user gives `-p` project, `-m` milestone (FC|GM), `-a` assignee (email or Mat
 ## Usage
 
     S=~/.config/opencode/skills/oem-enablement-skills/checkbox-jira-bugger/scripts/file_bugs.py
-    python3 $S ~/Downloads/submission_X_rerun.tar.xz -p <project> -m <FC|GM> -a <assignee> -l <label>
+    python3 $S ~/Downloads/submission_X_rerun.tar.xz -p <project> -m <FC|GM|M1|M2> -a <assignee> -l <label>
 
 One command: preflight, dry run, then the real run if the dry run is clean. The CID is read from the tarball name (`--cid` overrides). Other options: `--allow-original` (accept a non-`_rerun` tarball), `--jira-secrets`, `--c3-config`, `--jira-config`.
 
 ## What it does
 
-1. Preflight (no network): tarball is `*_rerun.tar.xz`, the three config files exist, `-p` and `-l` exactly match `jira_project_config.json`, milestone is FC/GM, CLI on PATH.
+1. Preflight (no network): tarball is `*_rerun.tar.xz`, the three config files exist, `-p` and `-l` exactly match `jira_project_config.json`, milestone is FC, GM or M<number>, CLI on PATH.
 2. `checkbox-jira-bugger --dryrun ...`; aborts on non-zero exit, an `ERROR:`/`CRITICAL:` log line or a traceback.
 3. Same command without `--dryrun`; the same checks apply to its output.
 

@@ -44,8 +44,9 @@ def preflight(tarball, project, label, milestone, jira_secrets, c3_config,
             f"{tarball} is not a *_rerun.tar.xz; run checkbox-rerun first "
             "or pass --allow-original")
     milestone = milestone.upper()
-    if milestone not in ("FC", "GM"):
-        raise PreflightError(f"invalid milestone {milestone}, must be FC or GM")
+    if not re.fullmatch(r"FC|GM|M\d+", milestone):
+        raise PreflightError(
+            f"invalid milestone {milestone}, must be FC, GM or M<number>")
     try:
         with open(jira_config) as f:
             projects = json.load(f)["OEM_X86_JIRA_CONF"]
