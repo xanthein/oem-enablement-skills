@@ -214,10 +214,26 @@ def tf_status(job_id: str) -> str:
     return (r.stdout or "").strip().lower()
 
 
+MAX_STATUS_ERRORS = 10
+
+
 def wait_for_reserve(job_id, poll_interval, max_wait, sleep=time.sleep, now=time.monotonic):
     start = now()
+    errors = 0
     while True:
-        status = tf_status(job_id)
+        try:
+            status = tf_status(job_id)
+            errors = 0
+        except (RuntimeError, subprocess.TimeoutExpired) as e:
+            errors += 1
+            if errors >= MAX_STATUS_ERRORS:
+                raise RuntimeError(f"testflinger status failed {errors} times in a row: {e}") from e
+            print(f"[{job_id}] transient status error ({errors}/{MAX_STATUS_ERRORS}): {e}", file=sys.stderr)
+            status = None
+        if status in ("reserve", "complete", "cancelled"):
+            return status
+        if status is None and now() - start + poll_interval > max_wait:
+            raise TimeoutError(f"job {job_id} not reserved after {max_wait}s (status unavailable)")
         if status in ("reserve", "complete", "cancelled"):
             return status
         if now() - start + poll_interval > max_wait:
