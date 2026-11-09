@@ -96,3 +96,4 @@ Always run `release` when a CID is skipped, stopped or aborted. If the user abor
 - Reserve timeout is 7200 s; release promptly after `rerun`.
 - A CID failing before `reserve` has no submission: no rerun, no Jira bugs.
 - One CID failing does not affect the others.
+- `wait` tolerates up to 10 consecutive `testflinger status` errors (e.g. auth refresh timeouts) and keeps polling; only then does it fail. If it still fails, check `testflinger status <job_id>` and rerun `wait`: the job usually continues.

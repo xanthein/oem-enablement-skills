@@ -249,6 +249,28 @@ def _seq(statuses):
     return lambda a, **k: _cp(next(it) + "\n")
 
 
+def test_wait_for_reserve_tolerates_transient_errors(monkeypatch):
+    calls = iter([RuntimeError("auth timeout"), RuntimeError("auth timeout"), "test", "reserve"])
+
+    def fake(job):
+        v = next(calls)
+        if isinstance(v, Exception):
+            raise v
+        return v
+
+    monkeypatch.setattr(m, "tf_status", fake)
+    assert m.wait_for_reserve(UUID, 5, 1000, sleep=lambda s: None) == "reserve"
+
+
+def test_wait_for_reserve_gives_up_after_repeated_errors(monkeypatch):
+    def fake(job):
+        raise RuntimeError("auth timeout")
+
+    monkeypatch.setattr(m, "tf_status", fake)
+    with pytest.raises(RuntimeError, match="in a row"):
+        m.wait_for_reserve(UUID, 5, 100000, sleep=lambda s: None)
+
+
 def test_wait_for_reserve_sequence(monkeypatch):
     monkeypatch.setattr(subprocess, "run", _seq(["setup", "provision", "test", "Reserve"]))
     sleeps = []
