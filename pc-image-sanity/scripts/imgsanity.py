@@ -37,6 +37,10 @@ def log(cid, msg):
 CID_RE = re.compile(r"^\d{6}-\d{5}$")
 DEFAULT_REPO = "~/source/canonical/ce-oem-dut-checkbox-configuration"
 LOGIN_MSG = "Testflinger not logged in: run `testflinger login` and retry"
+DEFAULT_TF_SECRETS = "~/.config/secrets/tf_secrets.ini"
+TF_CRED_KEYS = ("TESTFLINGER_CLIENT_ID", "TESTFLINGER_SECRET_KEY")
+TF_CREDS_MSG = ("Testflinger rejected credentials in {path}: check "
+                "TESTFLINGER_CLIENT_ID/TESTFLINGER_SECRET_KEY")
 
 
 class PreflightError(Exception):
@@ -62,18 +66,64 @@ def load_cids(cids, cids_file):
     return out
 
 
+def load_tf_credentials(path=None):
+    """Parse dotenv-style KEY=VALUE credentials; None unless both keys set."""
+    try:
+        text = Path(os.path.expanduser(path or DEFAULT_TF_SECRETS)).read_text()
+    except (OSError, UnicodeDecodeError):
+        return None
+    found = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):]
+        key, sep, val = line.partition("=")
+        key, val = key.strip(), val.strip()
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in "'\"":
+            val = val[1:-1]
+        if sep and key in TF_CRED_KEYS:
+            found[key] = val
+    if all(found.get(k) for k in TF_CRED_KEYS):
+        return {k: found[k] for k in TF_CRED_KEYS}
+    return None
+
+
+def _tf_env():
+    creds = load_tf_credentials()
+    return {**os.environ, **creds} if creds else None
+
+
+def tf_secrets_warning():
+    path = os.path.expanduser(DEFAULT_TF_SECRETS)
+    try:
+        mode = os.stat(path).st_mode
+    except OSError:
+        return None
+    if mode & 0o077:
+        return (f"{DEFAULT_TF_SECRETS} is readable by others; "
+                f"run chmod 600 {path}")
+    return None
+
+
 def check_testflinger_login():
+    env = _tf_env()
+    fail_msg = TF_CREDS_MSG.format(path=DEFAULT_TF_SECRETS) if env else LOGIN_MSG
     try:
         r = subprocess.run(
             ["testflinger", "list-queues", "--json"],
             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60,
+            env=env,
         )
     except FileNotFoundError:
         raise PreflightError("testflinger CLI not found in PATH")
     except subprocess.TimeoutExpired:
-        raise PreflightError(LOGIN_MSG)
+        raise PreflightError(
+            "testflinger list-queues timed out; check network/server"
+            if env else LOGIN_MSG)
     if r.returncode != 0 or "oauth2/device" in (r.stdout or "") + (r.stderr or ""):
-        raise PreflightError(LOGIN_MSG)
+        raise PreflightError(fail_msg)
 
 
 def _load_file_bugs():
@@ -195,6 +245,7 @@ def _tf(args, timeout=TF_TIMEOUT, input=None):
         capture_output=True,
         text=True,
         timeout=timeout,
+        env=_tf_env(),
         **kw,
     )
 
@@ -400,8 +451,13 @@ def cmd_preflight(args) -> dict:
     for cid in args.cids:
         if not (batch / cid / "state.json").is_file():
             save_state(batch, {"cid": cid, "status": "pending", "stage": ""})
-    return {"step": "preflight", "ok": True, "batch": str(batch),
-            "test_plan": plan, "cids": args.cids}
+    summary = {"step": "preflight", "ok": True, "batch": str(batch),
+               "test_plan": plan, "cids": args.cids,
+               "tf_auth": "credentials file" if load_tf_credentials() else "login"}
+    warning = tf_secrets_warning()
+    if warning:
+        summary["warnings"] = [warning]
+    return summary
 
 
 BATCH_ROOT = Path("/tmp/opencode/pc-image-sanity")

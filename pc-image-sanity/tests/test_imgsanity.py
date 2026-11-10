@@ -62,6 +62,29 @@ def test_preflight_iso_404(tmp_path, monkeypatch):
         m.preflight_checks(str(tmp_path / "repo"), "laptop", None, "http://x/a.iso")
 
 
+@pytest.fixture(autouse=True)
+def _no_real_tf_secrets(tmp_path, monkeypatch):
+    monkeypatch.setattr(m, "DEFAULT_TF_SECRETS", str(tmp_path / "none.ini"))
+
+
+def test_tf_creds_parse_quotes_export_comments(tmp_path):
+    f = tmp_path / "tf.ini"
+    f.write_text("# c\n\nexport TESTFLINGER_CLIENT_ID='id1'\n"
+                 'TESTFLINGER_SECRET_KEY="s=e=c"\nOTHER=x\n')
+    assert m.load_tf_credentials(str(f)) == {
+        "TESTFLINGER_CLIENT_ID": "id1", "TESTFLINGER_SECRET_KEY": "s=e=c"}
+
+
+def test_tf_creds_missing_file_none():
+    assert m.load_tf_credentials() is None
+
+
+def test_tf_creds_missing_key_none(tmp_path):
+    f = tmp_path / "tf.ini"
+    f.write_text("TESTFLINGER_CLIENT_ID=id1\nTESTFLINGER_SECRET_KEY=\n")
+    assert m.load_tf_credentials(str(f)) is None
+
+
 def _run(monkeypatch, out="", rc=0, exc=None):
     def fake(cmd, **kw):
         assert cmd == ["testflinger", "list-queues", "--json"]
@@ -1250,3 +1273,85 @@ def test_verify_image_no_build_id_message(sub, monkeypatch, tmp_path):
     monkeypatch.setattr(m, "verify_image", lambda ip, iso: (False, "other-20250101-9"))
     assert m.main(_vi_args(tmp_path)) == 1
     assert m.load_state(tmp_path, C1)["error"] == "ISO name has no build id"
+
+
+def _write_creds(path, mode=0o600):
+    path.write_text("TESTFLINGER_CLIENT_ID=id1\nTESTFLINGER_SECRET_KEY=sek\n")
+    path.chmod(mode)
+
+
+def test_tf_passes_creds_env(monkeypatch, tmp_path):
+    f = tmp_path / "tf.ini"
+    _write_creds(f)
+    monkeypatch.setattr(m, "DEFAULT_TF_SECRETS", str(f))
+    seen = {}
+
+    def fake(argv, **kw):
+        seen["argv"], seen["kw"] = argv, kw
+        return _cp("x")
+
+    monkeypatch.setattr(subprocess, "run", fake)
+    m._tf(["status", UUID])
+    assert seen["kw"]["env"]["TESTFLINGER_SECRET_KEY"] == "sek"
+    assert "sek" not in " ".join(seen["argv"])
+
+
+def test_tf_no_creds_env_none(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(subprocess, "run",
+                        lambda a, **kw: seen.update(kw) or _cp("x"))
+    m._tf(["status", UUID])
+    assert seen.get("env") is None
+
+
+def test_login_check_creds_rejected(monkeypatch, tmp_path):
+    f = tmp_path / "tf.ini"
+    _write_creds(f)
+    monkeypatch.setattr(m, "DEFAULT_TF_SECRETS", str(f))
+    _run(monkeypatch, "Authentication failed", rc=1)
+    with pytest.raises(m.PreflightError) as e:
+        m.check_testflinger_login()
+    assert "rejected credentials" in str(e.value)
+    assert "testflinger login" not in str(e.value)
+    assert "sek" not in str(e.value)
+
+
+def test_tf_secrets_warning_loose_perms(monkeypatch, tmp_path):
+    f = tmp_path / "tf.ini"
+    _write_creds(f, 0o664)
+    monkeypatch.setattr(m, "DEFAULT_TF_SECRETS", str(f))
+    assert "chmod 600" in m.tf_secrets_warning()
+    f.chmod(0o600)
+    assert m.tf_secrets_warning() is None
+
+
+def test_login_check_creds_timeout_not_blamed_on_file(monkeypatch, tmp_path):
+    f = tmp_path / "tf.ini"
+    _write_creds(f)
+    monkeypatch.setattr(m, "DEFAULT_TF_SECRETS", str(f))
+    _run(monkeypatch, exc=subprocess.TimeoutExpired("testflinger", 60))
+    with pytest.raises(m.PreflightError, match="timed out"):
+        m.check_testflinger_login()
+
+
+def test_tf_creds_undecodable_file_none(tmp_path):
+    f = tmp_path / "tf.ini"
+    f.write_bytes(b"\xff\xfe\x00bad")
+    assert m.load_tf_credentials(str(f)) is None
+
+
+def test_preflight_summary_reports_auth_no_secret(monkeypatch, tmp_path):
+    f = tmp_path / "tf.ini"
+    _write_creds(f, 0o664)
+    monkeypatch.setattr(m, "DEFAULT_TF_SECRETS", str(f))
+    monkeypatch.setattr(m, "check_testflinger_login", lambda: None)
+    monkeypatch.setattr(m, "check_jira_args", lambda *a: None)
+    monkeypatch.setattr(m, "preflight_checks", lambda *a: None)
+    args = argparse.Namespace(
+        p="P", m="fc", l="L", cids=["202401-12345"], test_plan="plan",
+        iso="x", repo="r", form_factor="laptop", manifest=None, no_fetch=True,
+        batch=str(tmp_path / "b"), lp_user="u", a="a")
+    out = m.cmd_preflight(args)
+    assert out["tf_auth"] == "credentials file"
+    assert "chmod 600" in out["warnings"][0]
+    assert "sek" not in json.dumps(out)

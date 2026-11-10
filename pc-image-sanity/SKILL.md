@@ -31,7 +31,8 @@ Stop and ask the user if any is missing; never guess.
 ## Prereqs
 
 - Jira `-p/-m/-l` are validated by `preflight` (project and label must exist in `jira_project_config.json`, milestone FC/GM, config files present). A wrong label error lists the valid labels.
-- Testflinger login is checked first. On exit 3 with `Testflinger not logged in`, ask the user to run `testflinger login` themselves, then retry. Never enter credentials.
+- Testflinger auth is checked first. If `~/.config/secrets/tf_secrets.ini` has both `TESTFLINGER_CLIENT_ID` and `TESTFLINGER_SECRET_KEY` (dotenv `KEY=VALUE`, keep it `chmod 600`, never cat it), it is used automatically for every `testflinger` call and preflight reports `tf_auth: credentials file` (plus a `warnings` entry if the file is readable by others). On exit 3 with `rejected credentials`, ask the user to fix that file.
+- Without a usable credentials file, on exit 3 with `Testflinger not logged in`, ask the user to run `testflinger login` themselves, then retry. Never enter credentials.
 - `sshpass`, `jinja2`, `git`; manifest repo at `~/source/canonical/ce-oem-dut-checkbox-configuration` (`--repo`; only `git fetch` + `git show`; `--no-fetch` skips fetch).
 - Sibling skills installed with their prereqs: `render_testflinger`, `checkbox-rerun`, `checkbox-jira-bugger`.
 
