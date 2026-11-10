@@ -18,7 +18,7 @@ Look up lab DUT info in C3: find a machine's IP from its Canonical ID (CID) or c
 
 ## Secrets (never put them in this skill)
 
-The tool reads OAuth client credentials from an INI file (chmod 600, outside any repo). Default location: ~/.config/c3/secrets.ini
+The tool reads OAuth client credentials from an INI file (chmod 600, outside any repo). Default location: ~/.config/secrets/c3_secrets.ini
 
     [c3 secret]
     client_id = <id>
