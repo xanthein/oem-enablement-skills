@@ -104,6 +104,14 @@ class c3api:
             params['holder__name'] = holder
         return self.c3_get('machines/', **params) or []
 
+    def find_machines_by_tag(self, launchpad_tag, holder=None):
+        params = {'launchpad_tag': launchpad_tag}
+        if holder:
+            params['holder__name'] = holder
+        machines = self.c3_get('machines/', **params) or []
+        # the server may ignore unknown filters, so filter locally as well
+        return [m for m in machines if m.get('launchpad_tag') == launchpad_tag]
+
     def get_ip_by_canonical_label(self, canonical_label, holder=None):
         machines = self.find_machines_by_label(canonical_label, holder)
         if not machines:
@@ -197,6 +205,11 @@ if __name__ == '__main__':
     get_ip_by_label_parser.add_argument(
         '--holder', help='Holder name, used to disambiguate machines sharing the same canonical_label')
 
+    find_tag_parser = subparsers.add_parser(
+        'find-by-tag', help='List machines (CID, label, holder) with a launchpad_tag')
+    find_tag_parser.add_argument('launchpad_tag', help='launchpad_tag of the machines')
+    find_tag_parser.add_argument('--holder', help='Only machines held by this holder name')
+
     args = parser.parse_args()
     api = c3api(args.secrets)
 
@@ -212,4 +225,14 @@ if __name__ == '__main__':
         if ip_address:
             print(ip_address)
         else:
+            sys.exit(1)
+    elif args.command == 'find-by-tag':
+        machines = api.find_machines_by_tag(args.launchpad_tag, args.holder)
+        for m in machines:
+            holder = m.get('holder')
+            if isinstance(holder, dict):
+                holder = holder.get('name')
+            print(m.get('canonical_id'), m.get('canonical_label') or '-', holder or '-', sep='\t')
+        if not machines:
+            logging.error(f'No machine found for launchpad_tag {args.launchpad_tag}')
             sys.exit(1)
