@@ -34,10 +34,10 @@ Script: scripts/c3_api.py in this skill dir (source: https://git.launchpad.net/~
     S=~/.hermes/skills/oem-enablement/c3/scripts/c3_api.py
 
     # IP by CID
-    $PY $S --secrets ~/.config/c3/secrets.ini get-ip 202401-12345
+    $PY $S --secrets ~/.config/secrets/c3_secrets.ini get-ip 202401-12345
 
     # IP by canonical_label (add --holder if several machines share the label)
-    $PY $S --secrets ~/.config/c3/secrets.ini get-ip-by-label <label> [--holder <name>]
+    $PY $S --secrets ~/.config/secrets/c3_secrets.ini get-ip-by-label <label> [--holder <name>]
 
     # List machines by launchpad_tag (optionally only one holder); prints CID, label, holder
     $PY $S --secrets ~/.config/secrets/c3_secrets.ini find-by-tag numbat-chammy --holder dirksu

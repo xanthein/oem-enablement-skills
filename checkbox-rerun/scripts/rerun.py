@@ -317,7 +317,7 @@ def parse_args(argv):
         "--c3-script",
         default=str(Path(__file__).resolve().parents[2] / "c3/scripts/c3_api.py"),
     )
-    ap.add_argument("--c3-secrets", default=str(Path("~/.config/c3/secrets.ini").expanduser()))
+    ap.add_argument("--c3-secrets", default=str(Path("~/.config/secrets/c3_secrets.ini").expanduser()))
     return ap.parse_args(argv)
 
 
