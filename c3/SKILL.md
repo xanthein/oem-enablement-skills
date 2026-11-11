@@ -39,6 +39,9 @@ Script: scripts/c3_api.py in this skill dir (source: https://git.launchpad.net/~
     # IP by canonical_label (add --holder if several machines share the label)
     $PY $S --secrets ~/.config/c3/secrets.ini get-ip-by-label <label> [--holder <name>]
 
+    # List machines by launchpad_tag (optionally only one holder); prints CID, label, holder
+    $PY $S --secrets ~/.config/secrets/c3_secrets.ini find-by-tag numbat-chammy --holder dirksu
+
 A canonical_label can match several machines (different holders). On the ambiguity error, retry with `--holder dirksu` (the user's own machines) rather than asking, and mention which other holder/CID also matched. Ticket CIDs map directly to `get-ip <cid>`. To get another holder's machine, take its canonical_id from the ambiguity log and run `get-ip <cid>`; such machines may sit on a different subnet (10.101.x vs 10.102.x).
 
 IP is printed on stdout; DEBUG logs go to stderr, so capture with `2>/dev/null`. Exit code 1 if not found or ambiguous (candidates are listed in the log).
