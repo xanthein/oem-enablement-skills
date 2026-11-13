@@ -23,17 +23,23 @@ Lab test devices (Canonical OEM hardware certification) use default credentials:
 
 ## Usage
 
-Connect with sshpass (non-interactive, since there's no pinentry/interactive prompt available):
+Use the `dut` wrapper (credentials, host-key options and CID lookup built in). `<host>` is an IP, hostname or a CID such as 202611-39773 (resolved via the `c3` skill).
 
-    sshpass -p insecure ssh -o StrictHostKeyChecking=no ubuntu@<DUT_IP_OR_HOSTNAME>
+    D=~/.config/opencode/skills/oem-enablement-skills/ssh/scripts/dut
 
-If `sshpass` isn't installed:
+    $D run <host> <cmd...>              # run a command; exit status is the remote one
+    $D cp ./file <host>:/tmp/           # scp (also $D cp <host>:/path ./)
+    $D wait <host> [timeout=600]        # wait until ssh answers again
+    $D reboot-wait <host> [timeout=600] # sudo reboot, wait for it to return, print uname -r
 
-    sudo apt install sshpass
+Pass a whole remote pipeline as one quoted string: `$D run <host> 'lsusb | grep 0781'`.
 
-For scp:
+### Fallback (raw ssh)
 
+    sshpass -p insecure ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ubuntu@<DUT_IP_OR_HOSTNAME>
     sshpass -p insecure scp -o StrictHostKeyChecking=no <file> ubuntu@<DUT_IP_OR_HOSTNAME>:<path>
+
+If `sshpass` isn't installed: `sudo apt install sshpass`.
 
 ## Running privileged commands on a DUT
 
@@ -44,7 +50,7 @@ For long or noisy steps (apt-get install, update), add `DEBIAN_FRONTEND=noninter
 ## Common DUT recipes
 
 - Enable resolute-proposed: write `deb http://archive.ubuntu.com/ubuntu <codename>-proposed main restricted universe multiverse` to /etc/apt/sources.list.d/<codename>-proposed.list, then `apt-get update`. Get the codename from `lsb_release -cs`. Then `apt-get install -y <pkg>` (explicit package names need no pinning). Installing a kernel regenerates grub and makes it the default; do not reboot unless asked.
-- Warm reboot then wait for return: `sudo reboot`, `sleep 20`, then loop `ssh -o ConnectTimeout=5 ... <check cmd>` every 10s until it succeeds.
+- Warm reboot then wait for return: `$D reboot-wait <host>` (prints the new kernel). For a single check use `$D wait <host>`.
 - Multi-iteration reboot loops (reproducing an intermittent bug N times) run past the foreground terminal timeout (~180-420s) partway through an iteration. Launch the whole loop with `terminal(background=true, notify=True)` from the start and poll/wait via `process_manage`, writing each iteration's result to a log file as you go — don't let a foreground call get killed mid-reboot and have to figure out which iteration it died on.
 - Before reproducing a bug on a DUT, compare its kernel (`uname -r`), BIOS (`sudo dmidecode -s bios-version`) and attached peripherals (`lsusb`) with the ticket. If they differ (custom kernel, missing drive), tell the user and suggest a sibling DUT from the same ticket instead of running the repro blindly.
 - Find the DUT IP from a CID or canonical_label with the `c3` skill.
