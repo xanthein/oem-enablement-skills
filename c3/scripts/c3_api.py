@@ -1,16 +1,20 @@
 #!/bin/env python3
 
+import argparse
 import base64
 import configparser
+import json
 import logging
+import os
 import requests
+import sys
+
+DEFAULT_SECRETS = '~/.config/secrets/c3_secrets.ini'
 
 
 class c3api:
     def __init__(self, c3_secrets_file):
         self.c3_url = f'https://certification.canonical.com'
-        logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s %(message)s')
-
         c3_client_id, c3_client_secret = self.get_c3_secrets(c3_secrets_file)
         try:
             self.access_token = self.get_access_token(c3_client_id, c3_client_secret)
@@ -183,56 +187,102 @@ class c3api:
         return client_id, client_secret
 
 
-if __name__ == '__main__':
-    import argparse
-    import sys
+def _holder_name(machine):
+    holder = machine.get('holder')
+    if isinstance(holder, dict):
+        holder = holder.get('name')
+    return holder or '-'
 
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s %(message)s')
+
+def _print_machines(machines):
+    for m in machines:
+        print(m.get('canonical_id'), m.get('canonical_label') or '-', _holder_name(m), sep='\t')
+
+
+def _print_json(data):
+    print(json.dumps(data, indent=2, ensure_ascii=False))
+
+
+def main(argv, api_factory=c3api):
     parser = argparse.ArgumentParser(
-        description='CLI for interacting with the C3 API',
+        description='CLI for interacting with the C3 API (read-only commands)',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--secrets', dest='secrets', required=True,
-                         help='file storing c3api secrets')
+    parser.add_argument('--secrets', dest='secrets', default=DEFAULT_SECRETS,
+                        help='file storing c3api secrets')
+    parser.add_argument('-v', '--verbose', action='store_true', help='DEBUG logs on stderr')
 
-    subparsers = parser.add_subparsers(dest='command', required=True)
+    sub = parser.add_subparsers(dest='command', required=True)
 
-    get_ip_parser = subparsers.add_parser('get-ip', help='Get the IP address for a CID')
-    get_ip_parser.add_argument('cid', help='Canonical ID of the machine')
+    p = sub.add_parser('get-ip', help='Get the IP address for a CID')
+    p.add_argument('cid', help='Canonical ID of the machine')
 
-    get_ip_by_label_parser = subparsers.add_parser(
-        'get-ip-by-label', help='Get the IP address for a canonical_label')
-    get_ip_by_label_parser.add_argument('canonical_label', help='Canonical label of the machine')
-    get_ip_by_label_parser.add_argument(
-        '--holder', help='Holder name, used to disambiguate machines sharing the same canonical_label')
+    p = sub.add_parser('get-ip-by-label', help='Get the IP address for a canonical_label')
+    p.add_argument('canonical_label', help='Canonical label of the machine')
+    p.add_argument('--holder', help='Holder name, used to disambiguate machines sharing the same canonical_label')
 
-    find_tag_parser = subparsers.add_parser(
-        'find-by-tag', help='List machines (CID, label, holder) with a launchpad_tag')
-    find_tag_parser.add_argument('launchpad_tag', help='launchpad_tag of the machines')
-    find_tag_parser.add_argument('--holder', help='Only machines held by this holder name')
+    p = sub.add_parser('find-by-tag', help='List machines (CID, label, holder) with a launchpad_tag')
+    p.add_argument('launchpad_tag', help='launchpad_tag of the machines')
+    p.add_argument('--holder', help='Only machines held by this holder name')
 
-    args = parser.parse_args()
-    api = c3api(args.secrets)
+    p = sub.add_parser('search', help='List machines whose canonical_label contains TEXT (case-insensitive)')
+    p.add_argument('text')
+    p.add_argument('--holder', help='Only machines held by this holder name')
+
+    p = sub.add_parser('show', help='Print machines/<cid>/ as JSON')
+    p.add_argument('cid')
+
+    p = sub.add_parser('submissions', help='Print submissions of a CID as JSON')
+    p.add_argument('cid')
+
+    p = sub.add_parser('get', help='Raw read-only GET of an endpoint, printed as JSON')
+    p.add_argument('endpoint', help='e.g. machines/')
+    p.add_argument('params', nargs='*', metavar='key=value', help='query parameters')
+
+    args = parser.parse_args(argv)
+    logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s')
+    logging.getLogger().setLevel(logging.DEBUG if args.verbose else logging.WARNING)
+    api = api_factory(os.path.expanduser(args.secrets))
 
     if args.command == 'get-ip':
         ip_address = api.get_ip_address(args.cid)
-        if ip_address:
-            print(ip_address)
-        else:
+        if not ip_address:
             logging.error(f'No IP address found for {args.cid}')
-            sys.exit(1)
+            return 1
+        print(ip_address)
     elif args.command == 'get-ip-by-label':
         ip_address = api.get_ip_by_canonical_label(args.canonical_label, args.holder)
-        if ip_address:
-            print(ip_address)
-        else:
-            sys.exit(1)
+        if not ip_address:
+            return 1
+        print(ip_address)
     elif args.command == 'find-by-tag':
         machines = api.find_machines_by_tag(args.launchpad_tag, args.holder)
-        for m in machines:
-            holder = m.get('holder')
-            if isinstance(holder, dict):
-                holder = holder.get('name')
-            print(m.get('canonical_id'), m.get('canonical_label') or '-', holder or '-', sep='\t')
         if not machines:
             logging.error(f'No machine found for launchpad_tag {args.launchpad_tag}')
-            sys.exit(1)
+            return 1
+        _print_machines(machines)
+    elif args.command == 'search':
+        params = {'canonical_label__icontains': args.text}
+        if args.holder:
+            params['holder__name'] = args.holder
+        machines = api.c3_get('machines/', **params) or []
+        if not machines:
+            logging.error(f'No machine found matching {args.text}')
+            return 1
+        _print_machines(machines)
+    else:
+        if args.command == 'show':
+            endpoint, params = f'machines/{args.cid}/', {}
+        elif args.command == 'submissions':
+            endpoint, params = 'submissions/', {'canonical_id': args.cid}
+        else:
+            endpoint = args.endpoint
+            params = dict(kv.split('=', 1) for kv in args.params)
+        data = api.c3_get(endpoint, **params)
+        if data is None:
+            return 1
+        _print_json(data)
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))
