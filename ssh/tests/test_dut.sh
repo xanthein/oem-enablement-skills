@@ -35,6 +35,14 @@ has "cp resolves remote" './f ubuntu@10.9.9.9:/tmp/$'
 check "wait timeout rc" 1 "$rc"
 case "$err" in *timeout*) echo "ok   wait timeout msg";; *) echo "FAIL wait msg: $err"; fail=1;; esac
 
+cat > "$T/counting" <<'F'
+#!/bin/bash
+echo x >> "$COUNT_LOG"; echo 10.9.9.9
+F
+chmod +x "$T/counting"; export COUNT_LOG="$T/count"; : > "$COUNT_LOG"
+DUT_C3="$T/counting" DUT_POLL=0 FAKE_RC=255 "$DUT" wait 202611-39773 1 >/dev/null 2>&1 || true
+check "wait resolves CID once" 1 "$(wc -l < "$COUNT_LOG")"
+
 err=$("$DUT" 2>&1 >/dev/null); rc=$?
 check "no args rc" 2 "$rc"
 case "$err" in *sage*) echo "ok   usage";; *) echo "FAIL usage: $err"; fail=1;; esac

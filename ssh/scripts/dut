@@ -16,6 +16,7 @@ Usage:
   dut wait <host> [timeout=600]      wait until ssh answers
   dut reboot-wait <host> [timeout=600]  reboot, wait for it to return, print uname -r
 <host> is an IP, hostname or CID (NNNNNN-NNNNN).
+For cp, a local path containing ':' must start with ./ (same rule as scp).
 U
   exit 2
 }
@@ -66,11 +67,11 @@ case $cmd in
     ;;
   wait)
     [ $# -ge 1 ] || usage
-    wait_up "$1" "${2:-600}"
+    wait_up "$(resolve "$1")" "${2:-600}"
     ;;
   reboot-wait)
     [ $# -ge 1 ] || usage
-    host=$1; timeout=${2:-600}
+    host=$(resolve "$1"); timeout=${2:-600}
     remote "$host" 'sudo reboot' >/dev/null 2>&1 || true
     drop=$((SECONDS + 120))
     while remote "$host" true >/dev/null 2>&1 && (( SECONDS < drop )); do sleep "$POLL"; done
