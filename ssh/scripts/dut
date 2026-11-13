@@ -1,0 +1,82 @@
+#!/bin/bash
+# dut: run commands on / copy files to a lab DUT (user ubuntu, password insecure).
+# <host> may be an IP, hostname, or a CID (resolved through the c3 skill).
+set -euo pipefail
+
+HERE=$(cd "$(dirname "$0")" && pwd)
+C3_CMD=${DUT_C3:-"python3 $HERE/../../c3/scripts/c3_api.py"}
+POLL=${DUT_POLL:-10}
+OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR)
+
+usage() {
+  cat >&2 <<U
+Usage:
+  dut run <host> <cmd...>            run a command, exit with its status
+  dut cp <src> <dst>                 scp; remote side is host:path
+  dut wait <host> [timeout=600]      wait until ssh answers
+  dut reboot-wait <host> [timeout=600]  reboot, wait for it to return, print uname -r
+<host> is an IP, hostname or CID (NNNNNN-NNNNN).
+U
+  exit 2
+}
+
+resolve() {
+  if [[ $1 =~ ^[0-9]{6}-[0-9]+$ ]]; then
+    local ip
+    # shellcheck disable=SC2086
+    ip=$($C3_CMD get-ip "$1") || { echo "dut: cannot resolve CID $1" >&2; exit 1; }
+    echo "$ip"
+  else
+    echo "$1"
+  fi
+}
+
+remote() { # host cmd...
+  local ip; ip=$(resolve "$1"); shift
+  sshpass -p insecure ssh "${OPTS[@]}" "ubuntu@$ip" "$@"
+}
+
+wait_up() { # host timeout
+  local deadline=$((SECONDS + $2))
+  until remote "$1" true >/dev/null 2>&1; do
+    if (( SECONDS >= deadline )); then echo "dut: timeout waiting for $1" >&2; return 1; fi
+    sleep "$POLL"
+  done
+}
+
+[ $# -ge 1 ] || usage
+cmd=$1; shift
+case $cmd in
+  run)
+    [ $# -ge 2 ] || usage
+    host=$1; shift
+    remote "$host" "$@"
+    ;;
+  cp)
+    [ $# -eq 2 ] || usage
+    args=()
+    for a in "$@"; do
+      if [[ $a == *:* && $a != ./* && $a != /* ]]; then
+        args+=("ubuntu@$(resolve "${a%%:*}"):${a#*:}")
+      else
+        args+=("$a")
+      fi
+    done
+    sshpass -p insecure scp "${OPTS[@]}" "${args[@]}"
+    ;;
+  wait)
+    [ $# -ge 1 ] || usage
+    wait_up "$1" "${2:-600}"
+    ;;
+  reboot-wait)
+    [ $# -ge 1 ] || usage
+    host=$1; timeout=${2:-600}
+    remote "$host" 'sudo reboot' >/dev/null 2>&1 || true
+    drop=$((SECONDS + 120))
+    while remote "$host" true >/dev/null 2>&1 && (( SECONDS < drop )); do sleep "$POLL"; done
+    wait_up "$host" "$timeout"
+    remote "$host" uname -r
+    ;;
+  -h|--help|help) usage ;;
+  *) usage ;;
+esac
