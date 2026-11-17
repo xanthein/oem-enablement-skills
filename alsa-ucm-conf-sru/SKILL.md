@@ -49,9 +49,19 @@ git branch -r | grep pkg/ubuntu/    # series: pkg/ubuntu/<series>-devel
 - Verify in a **copy** of the tree (git-ubuntu trees are unapplied; a `quilt
   push -a` in place leaves the tree dirty):
   `QUILT_PATCHES=debian/patches quilt push -a`
-- Changelog entry (`[ Name ]`, `(LP: #bug)`, `- d/p/<patch>`); version e.g.
-  `<old>ubuntu1.N+1` for stable, next `ubuntuN` for devel. Don't reuse a
-  version already in the PPA/archive.
+- Changelog entry (`[ Name ]`, `(LP: #bug)`, `- d/p/<patch>`). Version: use
+  the `ubuntu-version-string` skill. Key rules:
+  - The pool is shared by all series: a version can be uploaded once ever.
+    Run `rmadison -u ubuntu alsa-ucm-conf` and check every series first.
+  - Series N's version must sort BELOW the version in every newer series
+    (upgrade path). If a newer series (e.g. tenacious, next after stonking)
+    already has `<ver>-1ubuntu2`, a fix in an older series must not reuse or
+    exceed it: use `<ver>-1ubuntu1.<YY.MM>.1` (e.g. `1.2.16.1-1ubuntu1.26.10.1`
+    for stonking), not `ubuntu2`.
+  - Only the newest series takes the plain next `ubuntuN`; stable series use
+    `ubuntuX.Y` / `ubuntu0.1` (add `YY.MM` when several series share a base).
+  - Verify: `dpkg --compare-versions NEW gt <cur>` and `lt` the newer series.
+  Don't reuse a version already in the PPA/archive.
 - Commit message mirrors the changelog; `git push dirksu <branch>`.
   MP target: `ubuntu/<series>-devel` (devel for the dev series).
 
