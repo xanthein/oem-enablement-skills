@@ -113,3 +113,32 @@ def test_main_parses_minutes(monkeypatch):
     monkeypatch.setattr(m, "lookup", lambda v, **kw: captured.update(kw, variant=v) or 0)
     assert m.main(["v", "--timeout", "2", "--interval", "5"]) == 0
     assert captured["timeout_s"] == 120 and captured["interval_s"] == 5
+
+
+def test_parse_target_dcd():
+    v, b, urls = m.parse_target("canonical-oem-stella-resolute-oem-26.04a-20261006-775")
+    assert v == "stella-resolute-oem-26.04a" and b == v + "-20261006-775"
+    assert urls[0] == (m.HOST + "stella/releases/resolute/" + v + "/20261006-775/" + b + ".iso")
+
+
+def test_parse_target_variant_only():
+    assert m.parse_target(V) == (V, None, None)
+
+
+def test_parse_target_url():
+    u = m.HOST + "stella/releases/resolute/v1/20261006-775/"
+    assert m.parse_target(u)[2] == [u + "v1-20261006-775.iso"]
+
+
+def test_exact_falls_back_to_github_artifacts(capsys):
+    seen = []
+
+    def head(url):
+        seen.append(url)
+        if "/releases/" in url:
+            raise m.NotFound(url)
+        return {"x-cache-status": "HIT"}
+
+    rc = m.lookup("canonical-oem-stella-resolute-oem-26.04a-20261006-775", timeout_s=9, interval_s=1,
+                  head=head, sleep=lambda s: None, now=lambda: 0, log=lambda *a: None)
+    assert rc == 0 and "github-artifacts" in capsys.readouterr().out and len(seen) == 2

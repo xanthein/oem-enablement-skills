@@ -18,6 +18,7 @@ python3 <skill-dir>/scripts/image_lookup.py <variant> [--timeout MIN] [--interva
 # e.g. image_lookup.py stella-noble-hwe-proposed
 ```
 
+- Exact build: pass a DCD (`canonical-oem-stella-resolute-oem-26.04a-20261006-775`), `<variant>-<date>-<build>`, or a release directory URL. The script checks `oem-share/<project>/releases/<series>/<variant>/<date>-<build>/` first (project and series are the first two variant tokens), then `github-artifacts/oem-pc-image-builder/`, and prints the first ISO found, still waiting for `HIT`.
 - stdout: only the ISO URL. Progress goes to stderr.
 - `--timeout` minutes (default 60), `--interval` seconds (default 30).
 - `--no-wait`: print the URL as soon as the ISO exists, whatever the cache status.

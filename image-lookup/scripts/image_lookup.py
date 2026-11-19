@@ -6,7 +6,9 @@ import time
 import urllib.error
 import urllib.request
 
-BASE_URL = "https://tel-image-cache.canonical.com/oem-share/lyoncore/github-artifacts/oem-pc-image-builder/"
+HOST = "https://tel-image-cache.canonical.com/oem-share/"
+BASE_URL = HOST + "lyoncore/github-artifacts/oem-pc-image-builder/"
+EXACT_RE = re.compile(r"^(?:canonical-oem-)?(?P<variant>.+?)-(?P<build>\d{8}-\d+)$")
 
 
 class NotFound(Exception):
@@ -34,6 +36,28 @@ def latest_build(variant, names):
 
 def iso_url(variant, build):
     return "%s%s/%s/%s.iso" % (BASE_URL, variant, build, build)
+
+
+def parse_target(text):
+    """Return (variant, build|None, iso_urls|None) from a variant, DCD, or dir URL."""
+    text = text.strip()
+    if text.startswith("http"):
+        parts = text.rstrip("/").split("/")
+        build_dir = parts[-1]
+        variant = parts[-2]
+        iso = "%s/%s-%s.iso" % (text.rstrip("/"), variant, build_dir)
+        return variant, "%s-%s" % (variant, build_dir), [iso]
+    match = EXACT_RE.match(text)
+    if not match:
+        return text, None, None
+    variant, num = match.group("variant"), match.group("build")
+    build = "%s-%s" % (variant, num)
+    urls = []
+    tokens = variant.split("-")
+    if len(tokens) >= 3:
+        urls.append("%s%s/releases/%s/%s/%s/%s.iso" % (HOST, tokens[0], tokens[1], variant, num, build))
+    urls.append(iso_url(variant, build))
+    return variant, build, urls
 
 
 def cache_status(headers):
@@ -71,6 +95,9 @@ def _stderr(*args):
 
 def lookup(variant, *, timeout_s, interval_s, wait=True, fetch=fetch, head=head,
            sleep=time.sleep, now=time.monotonic, log=_stderr):
+    variant, build, urls = parse_target(variant)
+    if urls:
+        return _wait(urls, build, timeout_s, interval_s, wait, head, sleep, now, log)
     try:
         listing = fetch(BASE_URL + variant + "/")
     except NotFound:
@@ -81,18 +108,26 @@ def lookup(variant, *, timeout_s, interval_s, wait=True, fetch=fetch, head=head,
     if build is None:
         log("no builds found for %s" % variant)
         return 2
-    url = iso_url(variant, build)
     log("latest build: %s" % build)
+    return _wait([iso_url(variant, build)], build, timeout_s, interval_s, wait, head, sleep, now, log)
+
+
+def _wait(urls, build, timeout_s, interval_s, wait, head, sleep, now, log):
+    log("build: %s" % build)
     start = now()
     while True:
         status = None
-        try:
-            status = cache_status(head(url))
-            log("cache status: %s" % status)
-        except NotFound:
-            log("ISO not uploaded yet")
-        except OSError as exc:
-            log("request failed: %s" % exc)
+        url = urls[0]
+        for candidate in urls:
+            try:
+                status = cache_status(head(candidate))
+                url = candidate
+                log("cache status: %s (%s)" % (status, candidate))
+                break
+            except NotFound:
+                log("ISO not found at %s" % candidate)
+            except OSError as exc:
+                log("request failed: %s" % exc)
         if status == "HIT" or (not wait and status is not None):
             print(url)
             return 0
@@ -107,7 +142,7 @@ def lookup(variant, *, timeout_s, interval_s, wait=True, fetch=fetch, head=head,
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Latest cached ISO URL for a PC image variant")
-    parser.add_argument("variant")
+    parser.add_argument("variant", help="variant (latest build), or exact build: DCD, <variant>-<date>-<build>, or release dir URL")
     parser.add_argument("--timeout", type=float, default=60, help="minutes (default 60)")
     parser.add_argument("--interval", type=float, default=30, help="seconds (default 30)")
     parser.add_argument("--no-wait", action="store_true")
