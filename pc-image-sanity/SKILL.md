@@ -28,6 +28,14 @@ Stop and ask the user if any is missing; never guess.
 - `--lp-user` (Launchpad id; DUT gets `ssh_keys: lp:<user>`)
 - Jira `-p -m -a -l` (stored in the batch, passed to `file_bugs.py` by `jira`)
 
+`--lp-user`, `-a`, `-p` may come from `~/.config/pc-image-sanity.ini` (`--config PATH` overrides; flags win over the file). Do not ask the user for these up front: run `preflight` without them. If it exits 2 with `{"ok":false,"missing":[...]}`, ask the user only for the listed flags and rerun. Example file:
+
+    LP_USER=mylpid
+    JIRA_ASSIGNEE=me
+    JIRA_PROJECT=PROJ
+
+The preflight summary has `config_source` (file path or null); tell the user which project/assignee were used. `-m`, `-l`, ISO, CIDs and form factor are never read from the file.
+
 ## Prereqs
 
 - Jira `-p/-m/-l` are validated by `preflight` (project and label must exist in `jira_project_config.json`, milestone FC/GM, config files present). A wrong label error lists the valid labels.
@@ -65,7 +73,7 @@ Run CIDs in parallel as separate background shell jobs from the main agent. Neve
 
 ## Exit codes
 
-0 ok · 1 step failed (state set `failed`; summary has `step`, `ok:false`, `error`) · 2 bad args / unknown batch or CID / prerequisite step not run · 3 preflight failed (not logged in, bad Jira args, missing sibling/repo/manifest, ISO unreachable, unknown codename).
+0 ok · 1 step failed (state set `failed`; summary has `step`, `ok:false`, `error`) · 2 bad args / missing settings / unknown batch or CID / prerequisite step not run · 3 preflight failed (not logged in, bad Jira args, missing sibling/repo/manifest, ISO unreachable, unknown codename).
 
 ## Failure protocol
 

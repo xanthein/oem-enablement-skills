@@ -38,6 +38,9 @@ CID_RE = re.compile(r"^\d{6}-\d{5}$")
 DEFAULT_REPO = "~/source/canonical/ce-oem-dut-checkbox-configuration"
 LOGIN_MSG = "Testflinger not logged in: run `testflinger login` and retry"
 DEFAULT_TF_SECRETS = "~/.config/secrets/tf_secrets.ini"
+DEFAULT_SETTINGS = "~/.config/pc-image-sanity.ini"
+SETTINGS_KEYS = {"LP_USER": "lp_user", "JIRA_ASSIGNEE": "a", "JIRA_PROJECT": "p"}
+SETTINGS_FLAGS = {"lp_user": "--lp-user", "a": "-a", "p": "-p"}
 TF_CRED_KEYS = ("TESTFLINGER_CLIENT_ID", "TESTFLINGER_SECRET_KEY")
 TF_CREDS_MSG = ("Testflinger rejected credentials in {path}: check "
                 "TESTFLINGER_CLIENT_ID/TESTFLINGER_SECRET_KEY")
@@ -66,12 +69,7 @@ def load_cids(cids, cids_file):
     return out
 
 
-def load_tf_credentials(path=None):
-    """Parse dotenv-style KEY=VALUE credentials; None unless both keys set."""
-    try:
-        text = Path(os.path.expanduser(path or DEFAULT_TF_SECRETS)).read_text()
-    except (OSError, UnicodeDecodeError):
-        return None
+def _parse_dotenv(text):
     found = {}
     for line in text.splitlines():
         line = line.strip()
@@ -83,11 +81,37 @@ def load_tf_credentials(path=None):
         key, val = key.strip(), val.strip()
         if len(val) >= 2 and val[0] == val[-1] and val[0] in "'\"":
             val = val[1:-1]
-        if sep and key in TF_CRED_KEYS:
+        if sep:
             found[key] = val
+    return found
+
+
+def load_tf_credentials(path=None):
+    """Parse dotenv-style KEY=VALUE credentials; None unless both keys set."""
+    try:
+        text = Path(os.path.expanduser(path or DEFAULT_TF_SECRETS)).read_text()
+    except (OSError, UnicodeDecodeError):
+        return None
+    found = _parse_dotenv(text)
     if all(found.get(k) for k in TF_CRED_KEYS):
         return {k: found[k] for k in TF_CRED_KEYS}
     return None
+
+
+def load_settings(path=None, explicit=False):
+    """Read personal settings; returns (attr->value, resolved path or None, warnings)."""
+    resolved = os.path.expanduser(path or DEFAULT_SETTINGS)
+    try:
+        text = Path(resolved).read_text()
+    except (OSError, UnicodeDecodeError) as e:
+        if explicit:
+            raise UsageError(f"cannot read settings file {resolved}: {e}")
+        return {}, None, []
+    found = _parse_dotenv(text)
+    values = {attr: found[k] for k, attr in SETTINGS_KEYS.items() if found.get(k)}
+    warnings = [f"{resolved}: unknown key {k} ignored"
+                for k in found if k not in SETTINGS_KEYS]
+    return values, resolved, warnings
 
 
 def _tf_env():
@@ -453,10 +477,14 @@ def cmd_preflight(args) -> dict:
             save_state(batch, {"cid": cid, "status": "pending", "stage": ""})
     summary = {"step": "preflight", "ok": True, "batch": str(batch),
                "test_plan": plan, "cids": args.cids,
-               "tf_auth": "credentials file" if load_tf_credentials() else "login"}
+               "tf_auth": "credentials file" if load_tf_credentials() else "login",
+               "config_source": getattr(args, "config_source", None)}
+    warnings = list(getattr(args, "settings_warnings", []))
     warning = tf_secrets_warning()
     if warning:
-        summary["warnings"] = [warning]
+        warnings.append(warning)
+    if warnings:
+        summary["warnings"] = warnings
     return summary
 
 
@@ -682,9 +710,12 @@ def build_parser():
     pf.add_argument("--cids-file")
     pf.add_argument("--iso", required=True)
     pf.add_argument("--form-factor", required=True, choices=["laptop", "desktop"])
-    pf.add_argument("--lp-user", required=True)
-    for flag in ("-p", "-m", "-a", "-l"):
+    pf.add_argument("--lp-user")
+    for flag in ("-m", "-l"):
         pf.add_argument(flag, required=True)
+    for flag in ("-p", "-a"):
+        pf.add_argument(flag)
+    pf.add_argument("--config")
     pf.add_argument("--manifest")
     pf.add_argument("--test-plan")
     pf.add_argument("--repo", default=DEFAULT_REPO)
@@ -757,6 +788,18 @@ def main(argv=None) -> int:
                 return 2
             if not args.cids:
                 print("error: no CIDs given", file=sys.stderr)
+                return 2
+            values, args.config_source, args.settings_warnings = load_settings(
+                args.config, explicit=args.config is not None)
+            for attr, val in values.items():
+                if getattr(args, attr) is None:
+                    setattr(args, attr, val)
+            missing = [flag for attr, flag in SETTINGS_FLAGS.items()
+                       if not getattr(args, attr)]
+            if missing:
+                print(f"error: missing {', '.join(missing)}: pass them or set them in "
+                      f"{args.config or DEFAULT_SETTINGS}", file=sys.stderr)
+                _emit({"step": "preflight", "ok": False, "missing": missing})
                 return 2
             if not args.batch:
                 args.batch = str(BATCH_ROOT / time.strftime("%Y%m%d-%H%M%S"))

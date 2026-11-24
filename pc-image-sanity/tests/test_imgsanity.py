@@ -1355,3 +1355,78 @@ def test_preflight_summary_reports_auth_no_secret(monkeypatch, tmp_path):
     assert out["tf_auth"] == "credentials file"
     assert "chmod 600" in out["warnings"][0]
     assert "sek" not in json.dumps(out)
+
+
+NOPERSONAL = ["--iso", "http://x/pc-noble-20260101-1.iso", "--form-factor", "laptop",
+              "-m", "m", "-l", "l"]
+
+
+@pytest.fixture(autouse=True)
+def _no_real_settings(tmp_path, monkeypatch):
+    monkeypatch.setattr(m, "DEFAULT_SETTINGS", str(tmp_path / "none-settings.ini"))
+
+
+def _settings(tmp_path, text):
+    f = tmp_path / "settings.ini"
+    f.write_text(text)
+    return str(f)
+
+
+ALL_KEYS = "LP_USER=fu\nJIRA_ASSIGNEE=fa\nJIRA_PROJECT=FP\n"
+
+
+def _last(capsys):
+    return json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+
+
+def test_settings_fill_missing(mainenv, tmp_path, capsys):
+    cfg = _settings(tmp_path, ALL_KEYS)
+    b = tmp_path / "b"
+    assert m.main(["preflight", "--cid", C1, *NOPERSONAL, "--config", cfg,
+                   "--batch", str(b)]) == 0
+    got = m.load_batch(b)
+    assert (got["lp_user"], got["a"], got["p"]) == ("fu", "fa", "FP")
+    assert _last(capsys)["config_source"] == cfg
+
+
+def test_settings_cli_overrides(mainenv, tmp_path):
+    cfg = _settings(tmp_path, ALL_KEYS)
+    b = tmp_path / "b"
+    assert m.main(["preflight", "--cid", C1, *NOPERSONAL, "--lp-user", "cli",
+                   "--config", cfg, "--batch", str(b)]) == 0
+    got = m.load_batch(b)
+    assert (got["lp_user"], got["a"], got["p"]) == ("cli", "fa", "FP")
+
+
+def test_settings_absent_missing_list(mainenv, monkeypatch, tmp_path, capsys):
+    def bad():
+        raise AssertionError("login checked")
+
+    monkeypatch.setattr(m, "check_testflinger_login", bad)
+    assert m.main(["preflight", "--cid", C1, *NOPERSONAL, "--batch", str(tmp_path)]) == 2
+    last = _last(capsys)
+    assert last["ok"] is False and last["missing"] == ["--lp-user", "-a", "-p"]
+
+
+def test_settings_partial_and_empty(mainenv, tmp_path, capsys):
+    cfg = _settings(tmp_path, "LP_USER=x\nJIRA_PROJECT=\n")
+    assert m.main(["preflight", "--cid", C1, *NOPERSONAL, "--config", cfg,
+                   "--batch", str(tmp_path / "b")]) == 2
+    assert _last(capsys)["missing"] == ["-a", "-p"]
+
+
+def test_settings_explicit_config_missing(mainenv, tmp_path):
+    assert m.main(["preflight", "--cid", C1, *NOPERSONAL, "--config",
+                   str(tmp_path / "nope.ini"), "--batch", str(tmp_path / "b")]) == 2
+
+
+def test_settings_unknown_key_warns(mainenv, tmp_path, capsys):
+    cfg = _settings(tmp_path, ALL_KEYS + "FOO=1\n")
+    assert m.main(["preflight", "--cid", C1, *NOPERSONAL, "--config", cfg,
+                   "--batch", str(tmp_path / "b")]) == 0
+    assert any("FOO" in w for w in _last(capsys)["warnings"])
+
+
+def test_settings_default_none_config_source_null(mainenv, tmp_path, capsys):
+    assert m.main(["preflight", "--cid", C1, *BASE, "--batch", str(tmp_path / "b")]) == 0
+    assert _last(capsys)["config_source"] is None
