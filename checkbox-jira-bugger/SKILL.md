@@ -22,7 +22,7 @@ The user gives `-p` project, `-m` milestone (FC|GM|M1|M2|...), `-a` assignee (em
 
 - `checkbox-jira-bugger` on PATH (e.g. `pipx install` the repo).
 - These exist (check with `ls`; never cat or print them, they hold secrets):
-  `~/.checkbox-jira-bugger/secrets/jira_secrets.ini`, `~/.checkbox-jira-bugger/secrets/c3_config.ini`, `~/.checkbox-jira-bugger/jira_project_config/jira_project_config.json`.
+  `~/.config/secrets/jira_secrets.ini`, `~/.config/secrets/c3_secrets.ini`, `~/.checkbox-jira-bugger/jira_project_config/jira_project_config.json`.
 
 ## Usage
 

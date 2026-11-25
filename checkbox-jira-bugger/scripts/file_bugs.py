@@ -12,8 +12,8 @@ import subprocess
 import sys
 
 CLI = "checkbox-jira-bugger"
-DEFAULT_SECRETS = "~/.checkbox-jira-bugger/secrets/jira_secrets.ini"
-DEFAULT_C3 = "~/.checkbox-jira-bugger/secrets/c3_config.ini"
+DEFAULT_SECRETS = "~/.config/secrets/jira_secrets.ini"
+DEFAULT_C3 = "~/.config/secrets/c3_secrets.ini"
 DEFAULT_JIRA_CONFIG = "~/.checkbox-jira-bugger/jira_project_config/jira_project_config.json"
 
 EXIT_BAD_ARGS, EXIT_PREFLIGHT, EXIT_DRYRUN, EXIT_REAL = 2, 3, 4, 5
