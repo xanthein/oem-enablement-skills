@@ -205,8 +205,8 @@ def resolve_manifest(cid, repo, form_factor, override, fetch):
     if override:
         return json.loads(Path(override).read_text()), f"file:{override}"
     candidates = [
-        (f"origin/main:pc/{cid}/manifest.json", f"main:pc/{cid}"),
         (f"origin/{cid}:pc/{cid}/manifest.json", f"branch:origin/{cid}"),
+        (f"origin/main:pc/{cid}/manifest.json", f"main:pc/{cid}"),
     ]
     for ref, source in candidates:
         out = _git_show(repo, ref)

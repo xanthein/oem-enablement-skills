@@ -65,7 +65,7 @@ Last stdout line of every command is a JSON summary; progress and errors go to s
 | release | `release` | `job_id` | cancels the held job; no-op if none; fails (exit 1, `job_held` stays true) if cancel fails and the job is not complete/cancelled |
 | jira | `jira` | — | logs `<C>/jira.log` |
 
-Manifest order: `--manifest FILE` (`file:`) > `origin/main:pc/<CID>/manifest.json` (`main:`) > `origin/<CID>:...` (`branch:`) > bundled `manifests/manifest_<form-factor>.json` (`bundled:`). `pc/default` is never used.
+Manifest order: `--manifest FILE` (`file:`) > `origin/<CID>:pc/<CID>/manifest.json` (`branch:`) > `origin/main:...` (`main:`) > bundled `manifests/manifest_<form-factor>.json` (`bundled:`). `pc/default` is never used.
 
 Run CIDs in parallel as separate background shell jobs from the main agent. Never use subagents for CID steps (only the main agent can ask the user). `jira` takes the batch-wide lock (`--lock-timeout`, default 3600 s), so parallel CIDs do not file duplicates. Read the last stdout JSON line after each step.
 
