@@ -20,6 +20,7 @@ from pathlib import Path
 SKILL_DIR = Path(__file__).resolve().parents[1]
 SKILLS = SKILL_DIR.parent
 RENDER = SKILLS / "render_testflinger" / "scripts" / "render_testflinger.py"
+TF_SUBMIT = SKILLS / "render_testflinger" / "scripts" / "tf_submit.py"
 RERUN = SKILLS / "checkbox-rerun" / "scripts" / "rerun.py"
 FILE_BUGS = SKILLS / "checkbox-jira-bugger" / "scripts" / "file_bugs.py"
 SERIES = {"noble": "24.04", "resolute": "26.04"}
@@ -34,14 +35,28 @@ def log(cid, msg):
     except OSError:
         pass
 
+def _load_tf_submit():
+    spec = importlib.util.spec_from_file_location("tf_submit", TF_SUBMIT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_tfs = _load_tf_submit()
+_parse_dotenv = _tfs._parse_dotenv
+DEFAULT_TF_SECRETS = _tfs.DEFAULT_TF_SECRETS
+
+
+def load_tf_credentials(path=None):
+    return _tfs.load_tf_credentials(path or DEFAULT_TF_SECRETS)
+
+
 CID_RE = re.compile(r"^\d{6}-\d{5}$")
 DEFAULT_REPO = "~/source/canonical/ce-oem-dut-checkbox-configuration"
 LOGIN_MSG = "Testflinger not logged in: run `testflinger login` and retry"
-DEFAULT_TF_SECRETS = "~/.config/secrets/tf_secrets.ini"
 DEFAULT_SETTINGS = "~/.config/pc-image-sanity.ini"
 SETTINGS_KEYS = {"LP_USER": "lp_user", "JIRA_ASSIGNEE": "a", "JIRA_PROJECT": "p"}
 SETTINGS_FLAGS = {"lp_user": "--lp-user", "a": "-a", "p": "-p"}
-TF_CRED_KEYS = ("TESTFLINGER_CLIENT_ID", "TESTFLINGER_SECRET_KEY")
 TF_CREDS_MSG = ("Testflinger rejected credentials in {path}: check "
                 "TESTFLINGER_CLIENT_ID/TESTFLINGER_SECRET_KEY")
 
@@ -67,35 +82,6 @@ def load_cids(cids, cids_file):
     if bad:
         raise ValueError(f"invalid CID(s): {', '.join(bad)}")
     return out
-
-
-def _parse_dotenv(text):
-    found = {}
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[len("export "):]
-        key, sep, val = line.partition("=")
-        key, val = key.strip(), val.strip()
-        if len(val) >= 2 and val[0] == val[-1] and val[0] in "'\"":
-            val = val[1:-1]
-        if sep:
-            found[key] = val
-    return found
-
-
-def load_tf_credentials(path=None):
-    """Parse dotenv-style KEY=VALUE credentials; None unless both keys set."""
-    try:
-        text = Path(os.path.expanduser(path or DEFAULT_TF_SECRETS)).read_text()
-    except (OSError, UnicodeDecodeError):
-        return None
-    found = _parse_dotenv(text)
-    if all(found.get(k) for k in TF_CRED_KEYS):
-        return {k: found[k] for k in TF_CRED_KEYS}
-    return None
 
 
 def load_settings(path=None, explicit=False):

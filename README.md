@@ -92,7 +92,7 @@ The skills are written to check these files without printing them.
 | File | Used by | Contents |
 |---|---|---|
 | `~/.config/secrets/c3_secrets.ini` | `c3`, `checkbox-config-clone`, `checkbox-rerun`, `checkbox-jira-bugger` | INI: `[c3 secret]` with `client_id`, `client_secret` |
-| `~/.config/secrets/tf_secrets.ini` | `pc-image-sanity` | dotenv: `TESTFLINGER_CLIENT_ID=`, `TESTFLINGER_SECRET_KEY=` (alternative: run `testflinger login`) |
+| `~/.config/secrets/tf_secrets.ini` | `pc-image-sanity`, `render_testflinger` | dotenv: `TESTFLINGER_CLIENT_ID=`, `TESTFLINGER_SECRET_KEY=` (alternative: run `testflinger login`) |
 | `~/.config/pc-image-sanity.ini` | `pc-image-sanity` (optional) | dotenv: `LP_USER=`, `JIRA_ASSIGNEE=`, `JIRA_PROJECT=` |
 | `~/.config/secrets/jira_secrets.ini` | `checkbox-jira-bugger`, `pc-image-sanity` | Jira + Mattermost credentials (see section above) |
 | `~/.checkbox-jira-bugger/jira_project_config/jira_project_config.json` | same | Valid Jira projects and platform labels |

@@ -67,14 +67,6 @@ def _no_real_tf_secrets(tmp_path, monkeypatch):
     monkeypatch.setattr(m, "DEFAULT_TF_SECRETS", str(tmp_path / "none.ini"))
 
 
-def test_tf_creds_parse_quotes_export_comments(tmp_path):
-    f = tmp_path / "tf.ini"
-    f.write_text("# c\n\nexport TESTFLINGER_CLIENT_ID='id1'\n"
-                 'TESTFLINGER_SECRET_KEY="s=e=c"\nOTHER=x\n')
-    assert m.load_tf_credentials(str(f)) == {
-        "TESTFLINGER_CLIENT_ID": "id1", "TESTFLINGER_SECRET_KEY": "s=e=c"}
-
-
 def test_tf_creds_missing_file_none():
     assert m.load_tf_credentials() is None
 

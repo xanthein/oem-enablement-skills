@@ -38,7 +38,18 @@ $R provision-and-test -q <queue> --url <iso-url> -u <unit> [--manifest manifest.
 - Output defaults to stdout (`-o -`).
 - `--manifest` is a JSON object; its keys are written to the launcher `[manifest]` section.
 - `-t FILE` uses a custom template instead of the bundled one in `scripts/`.
-- Submit the result with the `testflinger` CLI.
+
+## Submit
+
+```bash
+python3 ~/.config/opencode/skills/oem-enablement-skills/render_testflinger/scripts/tf_submit.py job.yaml
+```
+
+- Always submit through `tf_submit.py`, not bare `testflinger submit`: it authenticates with `TESTFLINGER_CLIENT_ID`/`TESTFLINGER_SECRET_KEY` from `~/.config/secrets/tf_secrets.ini` (override with `--secrets`), so no browser device login is needed.
+- stdout is only the job id; exit 1 on failure. Never print or echo the credentials.
+- Without a usable credentials file it falls back to the CLI login; if that fails, ask the user to run `testflinger login`.
+- The job is passed via stdin, so a YAML in `/tmp` works (the snap CLI cannot read `/tmp` paths).
+- Follow up with `testflinger status|poll|results <job_id>`.
 
 ## Pitfalls
 
